@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Find-S Learning Game</title>
+
+<style>
+:root{
+  --blue:#1e88e5;
+  --green:#43a047;
+  --red:#e53935;
+  --bg1:#e3f2fd;
+  --bg2:#e8f5e9;
+}
+
+*{box-sizing:border-box;font-family:Segoe UI,system-ui,sans-serif}
+body{
+  margin:0;
+  min-height:100vh;
+  background:linear-gradient(135deg,var(--bg1),var(--bg2));
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+.container{max-width:1100px;width:100%;padding:20px}
+.card{
+  background:white;
+  padding:20px;
+  border-radius:18px;
+  box-shadow:0 15px 35px rgba(0,0,0,.15);
+}
+.hidden{display:none}
+
+button{
+  padding:12px 18px;
+  border:none;
+  border-radius:10px;
+  font-weight:600;
+  cursor:pointer;
+}
+.yes{background:var(--green);color:white}
+.no{background:var(--red);color:white}
+.primary{background:var(--blue);color:white}
+
+.example{border:2px dashed var(--blue);padding:15px;border-radius:12px}
+.attr{display:flex;justify-content:space-between;padding:6px 0}
+
+table{width:100%;border-collapse:collapse;margin-bottom:12px}
+th,td{border:1px solid #ddd;padding:8px;text-align:center}
+th{background:#e3f2fd}
+.pos{color:green;font-weight:bold}
+.neg{color:red;font-weight:bold}
+.active-row{background:#bbdefb !important}
+
+.hypothesis-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+  gap:10px;
+}
+.hypo-card{
+  padding:12px;
+  border-radius:12px;
+  text-align:center;
+}
+.value-specific{background:#e3f2fd;color:#1e88e5}
+.value-any{background:#fff3e0;color:#ef6c00}
+.value-empty{background:#eee;color:#777}
+.changed{outline:3px solid #ffeb3b}
+
+.explain-box{
+  margin-top:12px;
+  padding:12px;
+  background:#f9f9f9;
+  border-left:4px solid var(--blue);
+}
+.warning{color:var(--red);font-weight:bold}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<!-- WELCOME -->
+<div id="welcome" class="card">
+  <h1>🤖 Find-S Learning Game</h1>
+  <p>Predict, classify, and understand how the hypothesis changes.</p>
+  <button class="primary" onclick="startGame()">Start Game</button>
+</div>
+
+<!-- GAME -->
+<div id="game" class="card hidden">
+
+  <h2>📊 Training Data</h2>
+  <table id="dataTable">
+    <tr><th>Weather</th><th>Temp</th><th>Wind</th><th>Enjoy Sport</th></tr>
+    <tr><td>Sunny</td><td>Warm</td><td>Weak</td><td class="pos">Yes</td></tr>
+    <tr><td>Sunny</td><td>Warm</td><td>Strong</td><td class="pos">Yes</td></tr>
+    <tr><td>Rainy</td><td>Cold</td><td>Weak</td><td class="neg">No</td></tr>
+    <tr><td>Sunny</td><td>Cold</td><td>Weak</td><td class="pos">Yes</td></tr>
+  </table>
+
+  <h3>🧪 Current Example</h3>
+  <div id="example" class="example"></div>
+
+  <div style="margin-top:15px;display:flex;gap:10px">
+    <button class="yes" onclick="classify(true)">Positive (Yes)</button>
+    <button class="no" onclick="classify(false)">Negative (No)</button>
+  </div>
+
+  <div id="predictBox" class="hidden">
+    <p><strong>❓ Predict what will happen to the hypothesis</strong></p>
+    <button class="primary" onclick="applyUpdate()">Apply Find-S Update</button>
+  </div>
+
+  <h3>📌 Previous Hypothesis</h3>
+  <div id="prevHypo" class="hypothesis-grid"></div>
+
+  <h3>📌 Updated Hypothesis</h3>
+  <div id="currHypo" class="hypothesis-grid"></div>
+
+  <div id="explanation" class="explain-box"></div>
+</div>
+
+<!-- RESULT -->
+<div id="result" class="card hidden">
+  <h2>🎓 Game Completed</h2>
+  <p><strong>Final Hypothesis:</strong></p>
+  <div id="finalHypo" class="hypothesis-grid"></div>
+
+  <button class="primary" onclick="resetGame()">Play Again 🔄</button>
+</div>
+
+</div>
+
+<script>
+const DATA=[
+  {W:"Sunny",T:"Warm",Wi:"Weak",y:true},
+  {W:"Sunny",T:"Warm",Wi:"Strong",y:true},
+  {W:"Rainy",T:"Cold",Wi:"Weak",y:false},
+  {W:"Sunny",T:"Cold",Wi:"Weak",y:true}
+];
+const ATTR=["Weather","Temperature","Wind"];
+
+let index=0;
+let hypothesis=["Ø","Ø","Ø"];
+let prevHypothesis=[...hypothesis];
+let awaitingPrediction=false;
+
+const welcome=document.getElementById("welcome");
+const game=document.getElementById("game");
+const result=document.getElementById("result");
+const exampleBox=document.getElementById("example");
+const prevBox=document.getElementById("prevHypo");
+const currBox=document.getElementById("currHypo");
+const explanation=document.getElementById("explanation");
+const predictBox=document.getElementById("predictBox");
+const table=document.getElementById("dataTable");
+
+function startGame(){
+  welcome.classList.add("hidden");
+  game.classList.remove("hidden");
+  loadExample();
+}
+
+function highlightRow(){
+  [...table.rows].forEach((r,i)=>{
+    if(i===index+1) r.classList.add("active-row");
+    else r.classList.remove("active-row");
+  });
+}
+
+function loadExample(){
+  highlightRow();
+  prevHypothesis=[...hypothesis];
+  const e=DATA[index];
+
+  exampleBox.innerHTML=`
+    <div class="attr"><span>Weather</span><b>${e.W}</b></div>
+    <div class="attr"><span>Temperature</span><b>${e.T}</b></div>
+    <div class="attr"><span>Wind</span><b>${e.Wi}</b></div>
+    <div class="attr"><span>Enjoy Sport</span><b>${e.y?"Yes":"No"}</b></div>
+  `;
+
+  renderHypothesis(prevBox, prevHypothesis);
+  renderHypothesis(currBox, hypothesis);
+  explanation.textContent="Choose the correct classification.";
+  predictBox.classList.add("hidden");
+  awaitingPrediction=false;
+}
+
+function classify(choice){
+  const correct=DATA[index].y;
+  if(choice!==correct){
+    explanation.innerHTML="<span class='warning'>❌ Incorrect choice. Try again.</span>";
+    return;
+  }
+  explanation.textContent="✔ Correct! Now predict the update.";
+  predictBox.classList.remove("hidden");
+  awaitingPrediction=true;
+}
+
+function applyUpdate(){
+  if(!awaitingPrediction) return;
+  const e=DATA[index];
+  const values=[e.W,e.T,e.Wi];
+  let text="";
+
+  if(e.y){
+    hypothesis=hypothesis.map((h,i)=>{
+      if(h==="Ø"){
+        text+=`• ${ATTR[i]} set to ${values[i]}<br>`;
+        return values[i];
+      }
+      if(h!==values[i]){
+        text+=`• ${ATTR[i]} → ? (YES examples disagreed)<br>`;
+        return "?";
+      }
+      return h;
+    });
+  }else{
+    text="Negative example → hypothesis unchanged.";
+  }
+
+  renderHypothesis(currBox, hypothesis, prevHypothesis);
+  explanation.innerHTML=text;
+  index++;
+
+  if(index>=DATA.length){
+    setTimeout(endGame,900);
+  }else{
+    setTimeout(loadExample,900);
+  }
+}
+
+function renderHypothesis(container,hypo,prev=null){
+  container.innerHTML="";
+  hypo.forEach((v,i)=>{
+    let cls=v==="Ø"?"value-empty":v==="?"?"value-any":"value-specific";
+    const c=document.createElement("div");
+    c.className=`hypo-card ${cls}`;
+    c.innerHTML=`<strong>${ATTR[i]}</strong><br>${v}`;
+    if(prev && prev[i]!==v) c.classList.add("changed");
+    container.appendChild(c);
+  });
+}
+
+function endGame(){
+  game.classList.add("hidden");
+  result.classList.remove("hidden");
+  renderHypothesis(document.getElementById("finalHypo"),hypothesis);
+}
+
+function resetGame(){
+  index=0;
+  hypothesis=["Ø","Ø","Ø"];
+  prevHypothesis=[...hypothesis];
+  awaitingPrediction=false;
+
+  [...table.rows].forEach(r=>r.classList.remove("active-row"));
+
+  result.classList.add("hidden");
+  game.classList.add("hidden");
+  welcome.classList.remove("hidden");
+}
+</script>
+
+</body>
+</html>
